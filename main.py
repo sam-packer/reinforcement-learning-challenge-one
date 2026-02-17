@@ -57,12 +57,7 @@ METRICS_FILE = "metrics_data.json"
 
 
 def print_section(title: str):
-    width = 66
-    print()
-    print("=" * width)
-    print(f"  {title}")
-    print("=" * width)
-    print()
+    print(f"\n--- {title} ---\n")
 
 
 def save_metrics(
@@ -130,38 +125,27 @@ def generate_plots(
     results: dict[str, dict[str, EvalResult]],
 ):
     """Generate all visualization plots."""
-    print("  1/5 Training curves...")
-    plot_training_curves(
-        easy_metrics, hard_metrics, curriculum_metrics,
-        os.path.join(config.results_dir, "01_training_curves.png"),
-    )
-
-    print("  2/5 Exploration cliff...")
-    plot_exploration_cliff(
-        easy_metrics, hard_metrics,
-        os.path.join(config.results_dir, "02_exploration_cliff.png"),
-    )
-
-    print("  3/5 Evaluation comparison...")
-    plot_evaluation_comparison(
-        results,
-        os.path.join(config.results_dir, "03_evaluation_comparison.png"),
-    )
-
-    print("  4/5 Curriculum schedule...")
-    plot_curriculum_schedule(
-        curriculum_metrics,
-        config.curriculum_warmup_frac,
-        config.curriculum_full_hard_frac,
-        config.curriculum_timesteps,
-        os.path.join(config.results_dir, "04_curriculum_schedule.png"),
-    )
-
-    print("  5/5 Executive summary...")
-    plot_summary_dashboard(
-        results, easy_metrics, hard_metrics, curriculum_metrics,
-        os.path.join(config.results_dir, "05_executive_summary.png"),
-    )
+    plots = [
+        ("Training curves", lambda: plot_training_curves(
+            easy_metrics, hard_metrics, curriculum_metrics,
+            os.path.join(config.results_dir, "01_training_curves.png"))),
+        ("Exploration cliff", lambda: plot_exploration_cliff(
+            easy_metrics, hard_metrics,
+            os.path.join(config.results_dir, "02_exploration_cliff.png"))),
+        ("Evaluation comparison", lambda: plot_evaluation_comparison(
+            results,
+            os.path.join(config.results_dir, "03_evaluation_comparison.png"))),
+        ("Curriculum schedule", lambda: plot_curriculum_schedule(
+            curriculum_metrics, config.curriculum_warmup_frac,
+            config.curriculum_full_hard_frac, config.curriculum_timesteps,
+            os.path.join(config.results_dir, "04_curriculum_schedule.png"))),
+        ("Summary dashboard", lambda: plot_summary_dashboard(
+            results, easy_metrics, hard_metrics, curriculum_metrics,
+            os.path.join(config.results_dir, "05_executive_summary.png"))),
+    ]
+    for i, (name, fn) in enumerate(plots, 1):
+        print(f"  [{i}/{len(plots)}] {name}")
+        fn()
 
 
 def main():
@@ -174,81 +158,52 @@ def main():
     os.makedirs(config.results_dir, exist_ok=True)
 
     if args.plots_only:
-        print("\n  Loading saved metrics from disk...")
+        print("\n  Loading saved metrics...")
         easy_metrics, hard_metrics, curriculum_metrics, results, timing = load_metrics(config)
         easy_time = timing["easy_time"]
         hard_time = timing["hard_time"]
         curriculum_time = timing["curriculum_time"]
-        print("  Loaded successfully.\n")
+        print("  Done.\n")
 
     else:
-        print("""
-    +==================================================================+
-    |  DEEP RL GENERALIZATION CHALLENGE                                |
-    |  Failure Mode:  Poor Generalization (Exploration Cliff)          |
-    |  Mitigation:    Curriculum Learning (5x5 -> 8x8)                |
-    +==================================================================+
-        """)
+        print("\nRL Generalization Challenge: Curriculum Learning (5x5 -> 8x8)\n")
 
         torch.manual_seed(42)
         np.random.seed(42)
 
-        # ==============================================================
-        # PHASE 1: Train on DoorKey-5x5 (should succeed)
-        # ==============================================================
-        print_section("PHASE 1: Train PPO on DoorKey-5x5 (easy)")
-        print(f"  Environment:  {config.easy_env_id}")
-        print(f"  Budget:       {config.easy_timesteps:,} steps")
-        print()
+        # Phase 1: Train on DoorKey-5x5
+        print_section("Training PPO on DoorKey-5x5")
+        print(f"  {config.easy_env_id}, {config.easy_timesteps:,} steps")
 
         t0 = time.time()
         easy_agent, easy_metrics = train_on_env(
             config, config.easy_env_id, config.easy_timesteps, desc="5x5 PPO    ",
         )
         easy_time = time.time() - t0
-        print(f"\n  Completed in {easy_time:.1f}s")
-        print(f"  Final success rate: {easy_metrics.success_rate:.0%}")
-        print(f"  Final mean reward:  {easy_metrics.mean_reward:.3f}")
+        print(f"\n  Done in {easy_time:.1f}s -- success rate: {easy_metrics.success_rate:.0%}, mean reward: {easy_metrics.mean_reward:.3f}")
 
-        # ==============================================================
-        # PHASE 2: Train on DoorKey-8x8 (should fail)
-        # ==============================================================
-        print_section("PHASE 2: Train PPO on DoorKey-8x8 (hard -- expect failure)")
-        print(f"  Environment:  {config.hard_env_id}")
-        print(f"  Budget:       {config.hard_timesteps:,} steps")
-        print(f"  This demonstrates the exploration cliff.")
-        print()
+        # Phase 2: Train on DoorKey-8x8
+        print_section("Training PPO on DoorKey-8x8 (baseline)")
+        print(f"  {config.hard_env_id}, {config.hard_timesteps:,} steps")
 
         t0 = time.time()
         hard_agent, hard_metrics = train_on_env(
             config, config.hard_env_id, config.hard_timesteps, desc="8x8 PPO    ",
         )
         hard_time = time.time() - t0
-        print(f"\n  Completed in {hard_time:.1f}s")
-        print(f"  Final success rate: {hard_metrics.success_rate:.0%}")
-        print(f"  Final mean reward:  {hard_metrics.mean_reward:.3f}")
+        print(f"\n  Done in {hard_time:.1f}s -- success rate: {hard_metrics.success_rate:.0%}, mean reward: {hard_metrics.mean_reward:.3f}")
 
-        # ==============================================================
-        # PHASE 3: Curriculum learning (5x5 -> 8x8 transition)
-        # ==============================================================
-        print_section("PHASE 3: Curriculum Learning (5x5 -> 8x8)")
-        print(f"  Budget:       {config.curriculum_timesteps:,} steps (same as direct 8x8)")
-        print(f"  Warmup:       first {config.curriculum_warmup_frac:.0%} on 5x5 only")
-        print(f"  Transition:   linear mix from {config.curriculum_warmup_frac:.0%} to {config.curriculum_full_hard_frac:.0%}")
-        print(f"  Full 8x8:     from {config.curriculum_full_hard_frac:.0%} onward")
-        print()
+        # Phase 3: Curriculum learning
+        print_section("Curriculum learning (5x5 -> 8x8)")
+        print(f"  {config.curriculum_timesteps:,} steps, warmup {config.curriculum_warmup_frac:.0%}, full 8x8 at {config.curriculum_full_hard_frac:.0%}")
 
         t0 = time.time()
         curriculum_agent, curriculum_metrics = train_curriculum(config)
         curriculum_time = time.time() - t0
-        print(f"\n  Completed in {curriculum_time:.1f}s")
-        print(f"  Final success rate: {curriculum_metrics.success_rate:.0%}")
-        print(f"  Final mean reward:  {curriculum_metrics.mean_reward:.3f}")
+        print(f"\n  Done in {curriculum_time:.1f}s -- success rate: {curriculum_metrics.success_rate:.0%}, mean reward: {curriculum_metrics.mean_reward:.3f}")
 
-        # ==============================================================
-        # PHASE 4: Evaluate all three agents on both environments
-        # ==============================================================
-        print_section("PHASE 4: Evaluation")
+        # Phase 4: Evaluation
+        print_section("Evaluation")
 
         eval_kwargs = dict(
             n_seeds=config.eval_seeds,
@@ -271,23 +226,19 @@ def main():
                 "8x8": evaluate_agent(agent, config.hard_env_id, desc=f"{name} on 8x8", **eval_kwargs),
             }
 
-        print("\n  EVALUATION RESULTS:")
-        print(f"  {'Agent':<16} {'5x5 Success':>12} {'8x8 Success':>12} {'8x8 Reward':>12}")
+        print(f"\n  {'Agent':<16} {'5x5 Success':>12} {'8x8 Success':>12} {'8x8 Reward':>12}")
         print(f"  {'-'*52}")
         for name in agents:
             r5 = results[name]["5x5"]
             r6 = results[name]["8x8"]
             print(f"  {name:<16} {r5.success_rate:>11.0%} {r6.success_rate:>11.0%} {r6.mean_reward:>11.4f}")
 
-        # Save full metrics to disk
-        print_section("Saving Metrics")
+        print_section("Saving metrics")
         save_metrics(config, easy_metrics, hard_metrics, curriculum_metrics,
                      results, easy_time, hard_time, curriculum_time)
 
-        # ==============================================================
-        # PHASE 6: Record agent videos as GIFs
-        # ==============================================================
-        print_section("PHASE 6: Recording Agent Videos")
+        # Record agent GIFs
+        print_section("Recording agent GIFs")
 
         gifs = [
             ("5x5 agent on 5x5", easy_agent, config.easy_env_id,
@@ -303,22 +254,18 @@ def main():
                 agent, env_id, path,
                 max_steps=config.max_episode_steps,
             )
-            status = "success" if success else "no goal reached"
-            print(f"  {desc}: {path} ({status})")
+            tag = "ok" if success else "no goal reached"
+            print(f"  {desc}: {tag}")
 
-    # ==================================================================
-    # PHASE 5: Generate visualizations (runs in both modes)
-    # ==================================================================
-    print_section("PHASE 5: Generating Visualizations")
+    # Generate plots
+    print_section("Generating plots")
     generate_plots(config, easy_metrics, hard_metrics, curriculum_metrics, results)
 
-    # ==================================================================
-    # Save numerical results summary
-    # ==================================================================
+    # Save results JSON
     json_results = {
-        "experiment": "Deep RL Generalization Challenge -- Exploration Cliff",
-        "failure_mode": "Poor generalization: DoorKey-5x5 succeeds, DoorKey-8x8 fails",
-        "mitigation": "Curriculum learning: gradual 5x5 -> 8x8 transition",
+        "experiment": "RL generalization: exploration cliff",
+        "failure_mode": "DoorKey-5x5 succeeds, DoorKey-8x8 fails",
+        "mitigation": "Curriculum learning (5x5 -> 8x8)",
         "training": {
             "easy_5x5": {
                 "timesteps": config.easy_timesteps,
@@ -356,37 +303,14 @@ def main():
     with open(results_path, "w") as f:
         json.dump(json_results, f, indent=2)
 
-    # ==================================================================
     # Final summary
-    # ==================================================================
-    print_section("FINAL SUMMARY")
+    print_section("Results")
 
     r = results
-    print("  FAILURE MODE: Poor Generalization (Exploration Cliff)")
-    print("  -----------------------------------------------------------------")
-    print(f"  DoorKey-5x5 PPO: {r['5x5 Agent']['5x5'].success_rate:.0%} success in {config.easy_timesteps:,} steps")
-    print(f"  DoorKey-8x8 PPO: {r['Direct 8x8']['8x8'].success_rate:.0%} success in {config.hard_timesteps:,} steps")
-    print(f"  Same algorithm. Same hyperparameters. Just 3 extra rows and columns.")
-    print()
-    print("  MITIGATION: Curriculum Learning")
-    print("  -----------------------------------------------------------------")
-    print(f"  Curriculum agent on 8x8: {r['Curriculum']['8x8'].success_rate:.0%} success")
-    print(f"  Budget: {config.curriculum_timesteps:,} steps (same as direct 8x8)")
-    print(f"  Strategy: learn on 5x5 first, gradually transition to 8x8")
-    print()
-    print("  OUTPUTS:")
-    print("  -----------------------------------------------------------------")
-    print(f"  {config.results_dir}/experiment_results.json")
-    print(f"  {config.results_dir}/metrics_data.json")
-    print(f"  {config.results_dir}/01_training_curves.png")
-    print(f"  {config.results_dir}/02_exploration_cliff.png")
-    print(f"  {config.results_dir}/03_evaluation_comparison.png")
-    print(f"  {config.results_dir}/04_curriculum_schedule.png")
-    print(f"  {config.results_dir}/05_executive_summary.png")
-    print(f"  {config.results_dir}/5x5_agent_on_5x5.gif")
-    print(f"  {config.results_dir}/direct_8x8_agent_on_8x8.gif")
-    print(f"  {config.results_dir}/curriculum_agent_on_8x8.gif")
-    print()
+    print(f"  5x5 PPO:     {r['5x5 Agent']['5x5'].success_rate:.0%} on 5x5 ({config.easy_timesteps:,} steps)")
+    print(f"  8x8 PPO:     {r['Direct 8x8']['8x8'].success_rate:.0%} on 8x8 ({config.hard_timesteps:,} steps)")
+    print(f"  Curriculum:   {r['Curriculum']['8x8'].success_rate:.0%} on 8x8 ({config.curriculum_timesteps:,} steps)")
+    print(f"\n  Output saved to {config.results_dir}/\n")
 
 
 if __name__ == "__main__":
